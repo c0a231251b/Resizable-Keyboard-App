@@ -23,54 +23,64 @@ def main():
     """, unsafe_allow_html=True)
     
     st.title("大きさの変わるキーボードアプリ")
-    st.caption("「送信（Next Trial）」を押すことで、データを保持したまま次の入力へ進めます。")
+    st.caption("「送信（Next Trial）」を押すことで、データを保持したまま次の入力へ進めます。リロードするとデータは消えませんが、パラメータ設定がリセットされます。")
 
     # --- サイドバー設定 ---
     with st.sidebar:
         st.header("拡大機能の設定")
-        scale_enabled = st.checkbox("拡大機能 ON/OFF", value=True)
-        # 1. 変化速度: 0.1秒 ～ 10.0秒 (0.1刻み)
+        # 1. 拡大機能ON/OFFトグルスイッチに変更
+        scale_enabled = st.toggle("拡大機能 ON/OFF", value=True)
+        
         breath_speed = st.slider("変化速度 (秒/周期)", 0.1, 10.0, 2.0, 0.1)
-        # 3. 最小サイズ: 0.0倍 ～ 1.0倍 (0.1刻み)
         scale_min = st.slider("最小サイズ", 0.0, 1.0, 0.8, 0.1)
-        # 2. 最大サイズ: 1.0倍 ～ 2.0倍 (0.1刻み)
         scale_max = st.slider("最大サイズ", 1.0, 2.0, 1.1, 0.1)
 
         st.divider()
 
         st.header("移動機能の設定")
-        # 6. 機能切替: 移動機能のON/OFFトグルスイッチ
         move_enabled = st.toggle("移動機能 ON/OFF", value=True)
         
-        # 4. 移動の速さ: 0.1秒 ～ 20.0秒 (0.1刻み)
         one_move_duration = st.slider("移動の速さ (秒/回)", 0.1, 20.0, 1.0, 0.1)
-        # 5. 移動範囲: 0px ～ 200px (10px刻み)
         move_range = st.slider("移動範囲 (px)", 0, 200, 30, 10)
 
         st.subheader("移動の規則性")
-        # 7. 規則的の設定
-        move_pattern = st.radio("移動順序", ["規則的 (時計回り)", "ランダム"], index=0)
+        # 2. 移動順序の設定（規則的の場合に順序指定可能にする）
+        move_pattern = st.radio("移動順序モード", ["規則的 (順序指定)", "ランダム"], index=0)
+
+        # 方向定義
+        dir_labels = ["上", "右上", "右", "右下", "下", "左下", "左", "左上"]
+        dir_vectors = {
+            "上": (0, -1), "右上": (1, -1), "右": (1, 0), "右下": (1, 1),
+            "下": (0, 1), "左下": (-1, 1), "左": (-1, 0), "左上": (-1, -1)
+        }
         
-        random_seed = 42
+        directions = []
+
         if move_pattern == "ランダム":
             random_seed = st.number_input("乱数シード (Seed)", value=42, step=1, help="同じ値を入力すると同じランダム順序が再現されます")
+            # ランダム生成
+            base_dirs = list(dir_vectors.values())
+            random.seed(random_seed)
+            random.shuffle(base_dirs)
+            directions = base_dirs
+        else:
+            # 規則的 (順序指定)
+            st.caption("以下で移動する順番を設定してください (デフォルト: 時計回り)")
+            with st.expander("移動順序の編集", expanded=True):
+                # デフォルトの時計回りの順序
+                default_order = ["上", "右上", "右", "右下", "下", "左下", "左", "左上"]
+                
+                # 8ステップ分の入力欄を作成
+                for i in range(8):
+                    selected_label = st.selectbox(
+                        f"{i+1}番目の移動先", 
+                        dir_labels, 
+                        index=dir_labels.index(default_order[i]),
+                        key=f"dir_step_{i}"
+                    )
+                    directions.append(dir_vectors[selected_label])
 
-    # --- 移動アニメーションの生成ロジック ---
-    directions = [
-        (0, -1),  # ① 上
-        (1, -1),  # ② 右上
-        (1, 0),   # ③ 右
-        (1, 1),   # ④ 右下
-        (0, 1),   # ⑤ 下
-        (-1, 1),  # ⑥ 左下
-        (-1, 0),  # ⑦ 左
-        (-1, -1)  # ⑧ 左上
-    ]
-
-    if move_pattern == "ランダム":
-        random.seed(random_seed)
-        random.shuffle(directions)
-    
+    # --- CSS Keyframes の生成 ---
     total_move_duration = one_move_duration * 8
     
     keyframes_css = "@keyframes floatKeyframes {"
@@ -107,9 +117,9 @@ def main():
             {"label": "*", "sub": "8 ゆ", "val": "8", "w": 1},
             {"label": "(", "sub": "9 よ", "val": "9", "w": 1},
             {"label": ")", "sub": "0 わ", "val": "0", "w": 1},
-            {"label": "-", "sub": "ー", "val": "-", "w": 1, "color": "yellow"},
+            {"label": "-", "sub": "ー", "val": "-", "w": 1,},
             {"label": "+", "sub": "=", "val": "=", "w": 1},
-            {"label": "BS", "sub": "", "val": "BS", "w": 2, "align": "right"},
+            {"label": "BS", "sub": "", "val": "BS", "w": 2,},
         ],
         # Row 2
         [
@@ -117,40 +127,40 @@ def main():
             {"label": "Q", "sub": "た", "val": "q", "w": 1},
             {"label": "W", "sub": "て", "val": "w", "w": 1},
             {"label": "E", "sub": "い", "val": "e", "w": 1},
-            {"label": "R", "sub": "す", "val": "r", "w": 1, "color": "red"},
+            {"label": "R", "sub": "す", "val": "r", "w": 1,},
             {"label": "T", "sub": "か", "val": "t", "w": 1},
             {"label": "Y", "sub": "ん", "val": "y", "w": 1},
             {"label": "U", "sub": "な", "val": "u", "w": 1},
             {"label": "I", "sub": "に", "val": "i", "w": 1},
             {"label": "O", "sub": "ら", "val": "o", "w": 1},
             {"label": "P", "sub": "せ", "val": "p", "w": 1},
-            {"label": "{", "sub": "「", "val": "{", "w": 1, "color": "yellow"},
-            {"label": "}", "sub": "」", "val": "}", "w": 1, "color": "yellow"},
-            {"label": "|", "sub": "ー", "val": "|", "w": 1, "color": "yellow"},
+            {"label": "{", "sub": "「", "val": "{", "w": 1,},
+            {"label": "}", "sub": "」", "val": "}", "w": 1,},
+            {"label": "|", "sub": "ー", "val": "|", "w": 1,},
         ],
         # Row 3
         [
             {"label": "Caps", "sub": "", "val": "", "w": 1.8, "align": "left"},
             {"label": "A", "sub": "ち", "val": "a", "w": 1},
             {"label": "S", "sub": "と", "val": "s", "w": 1},
-            {"label": "D", "sub": "し", "val": "d", "w": 1, "color": "red"},
-            {"label": "F", "sub": "は", "val": "f", "w": 1, "color": "red"},
+            {"label": "D", "sub": "し", "val": "d", "w": 1,},
+            {"label": "F", "sub": "は", "val": "f", "w": 1,},
             {"label": "G", "sub": "き", "val": "g", "w": 1},
             {"label": "H", "sub": "く", "val": "h", "w": 1},
             {"label": "J", "sub": "ま", "val": "j", "w": 1},
             {"label": "K", "sub": "の", "val": "k", "w": 1},
             {"label": "L", "sub": "り", "val": "l", "w": 1},
-            {"label": ":", "sub": ";", "val": ":", "w": 1, "color": "green"},
-            {"label": "\"", "sub": "'", "val": "\"", "w": 1, "color": "green"},
+            {"label": ":", "sub": ";", "val": ":", "w": 1},
+            {"label": "\"", "sub": "'", "val": "\"", "w": 1},
             {"label": "Enter", "sub": "", "val": "\n", "w": 2.2, "align": "right"},
         ],
         # Row 4
         [
             {"label": "Shift", "sub": "", "val": "", "w": 2.3, "align": "left"},
             {"label": "Z", "sub": "つ", "val": "z", "w": 1},
-            {"label": "X", "sub": "さ", "val": "x", "w": 1, "color": "red"},
-            {"label": "C", "sub": "そ", "val": "c", "w": 1, "color": "red"},
-            {"label": "V", "sub": "ひ", "val": "v", "w": 1, "color": "red"},
+            {"label": "X", "sub": "さ", "val": "x", "w": 1},
+            {"label": "C", "sub": "そ", "val": "c", "w": 1},
+            {"label": "V", "sub": "ひ", "val": "v", "w": 1},
             {"label": "B", "sub": "こ", "val": "b", "w": 1},
             {"label": "N", "sub": "み", "val": "n", "w": 1},
             {"label": "M", "sub": "も", "val": "m", "w": 1},
@@ -222,7 +232,7 @@ def main():
             position: relative;
         }}
 
-        /* 2. コントロールエリア（入力欄の下、キーボードの上） */
+        /* 2. コントロールエリア */
         .controls {{
             display: flex;
             gap: 10px;
@@ -282,7 +292,6 @@ def main():
             width: 95%;
             display: flex;
             justify-content: center;
-            /* 移動範囲確保のためのパディング */
             padding: {move_range + 10}px; 
             box-sizing: border-box;
         }}
@@ -295,7 +304,7 @@ def main():
             border-radius: 10px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             width: 100%;
-            height: 50vh; /* 少し高さを調整 */
+            height: 50vh; 
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -372,13 +381,12 @@ def main():
             const screen = document.getElementById('screen');
             const dataCountLabel = document.getElementById('data-count');
 
-            // --- セッションストレージからデータを復元（リロード対策） ---
+            // --- セッションストレージからデータを復元 ---
             let recordedData = JSON.parse(sessionStorage.getItem('kb_data') || '[]');
             let currentTrial = parseInt(sessionStorage.getItem('kb_trial') || '1');
             let lastDownTime = null;
             let lastUpTime = null;
 
-            // 初期表示更新
             updateStatus();
 
             // --- キーボード生成 ---
@@ -454,7 +462,6 @@ def main():
                             }};
                             
                             recordedData.push(record);
-                            
                             sessionStorage.setItem('kb_data', JSON.stringify(recordedData));
                             
                             lastUpTime = now;
@@ -469,12 +476,10 @@ def main():
                 kbContainer.appendChild(rowDiv);
             }});
 
-            // --- ステータス表示更新 ---
             function updateStatus() {{
                 dataCountLabel.innerText = `Trial: ${{currentTrial}} | Rec: ${{recordedData.length}}`;
             }}
 
-            // --- 次の試行へ（送信） ---
             function nextTrial() {{
                 currentTrial++;
                 sessionStorage.setItem('kb_trial', currentTrial);
@@ -482,7 +487,6 @@ def main():
                 updateStatus();
             }}
 
-            // --- データリセット ---
             function resetData() {{
                 if(confirm("データを全消去しますか？")) {{
                     recordedData = [];
@@ -493,7 +497,6 @@ def main():
                 }}
             }}
 
-            // --- CSVダウンロード ---
             function downloadCSV() {{
                 if (recordedData.length === 0) {{
                     alert("No data collected yet!");
