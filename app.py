@@ -1,11 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
+import random
 
 def main():
     st.set_page_config(layout="wide", page_title="Accumulated Data Keyboard")
 
-    # --- CSS設定 ---
+    # --- CSS設定 (Streamlit自体のスタイル) ---
     st.markdown("""
         <style>
             .block-container {
@@ -24,33 +25,74 @@ def main():
     st.title("大きさの変わるキーボードアプリ")
     st.caption("「送信（Next Trial）」を押すことで、データを保持したまま次の入力へ進めます。")
 
-    # サイドバー設定
+    # --- サイドバー設定 ---
     with st.sidebar:
-
         st.header("拡大機能の設定")
         scale_enabled = st.checkbox("拡大機能 ON/OFF", value=True)
-        st.divider()
-    
-        st.header("キーボードサイズの設定")
-        breath_speed = st.slider("変化速度 (秒)", 0.1, 5.0, 2.0, 0.1)
-        scale_min = st.slider("最小サイズ", 0.5, 1.0, 0.8, 0.01)
-        scale_max = st.slider("最大サイズ", 1.0, 1.5, 1.1, 0.01)
+        # 1. 変化速度: 0.1秒 ～ 10.0秒 (0.1刻み)
+        breath_speed = st.slider("変化速度 (秒/周期)", 0.1, 10.0, 2.0, 0.1)
+        # 3. 最小サイズ: 0.0倍 ～ 1.0倍 (0.1刻み)
+        scale_min = st.slider("最小サイズ", 0.0, 1.0, 0.8, 0.1)
+        # 2. 最大サイズ: 1.0倍 ～ 2.0倍 (0.1刻み)
+        scale_max = st.slider("最大サイズ", 1.0, 2.0, 1.1, 0.1)
 
         st.divider()
 
         st.header("移動機能の設定")
-        move_enabled = st.sidebar.checkbox("移動機能 ON/OFF", value=True)
+        # 6. 機能切替: 移動機能のON/OFFトグルスイッチ
+        move_enabled = st.toggle("移動機能 ON/OFF", value=True)
+        
+        # 4. 移動の速さ: 0.1秒 ～ 20.0秒 (0.1刻み)
+        one_move_duration = st.slider("移動の速さ (秒/回)", 0.1, 20.0, 1.0, 0.1)
+        # 5. 移動範囲: 0px ～ 200px (10px刻み)
+        move_range = st.slider("移動範囲 (px)", 0, 200, 30, 10)
 
-        st.divider()
+        st.subheader("移動の規則性")
+        # 7. 規則的の設定
+        move_pattern = st.radio("移動順序", ["規則的 (時計回り)", "ランダム"], index=0)
+        
+        random_seed = 42
+        if move_pattern == "ランダム":
+            random_seed = st.number_input("乱数シード (Seed)", value=42, step=1, help="同じ値を入力すると同じランダム順序が再現されます")
 
-        st.header("キーボード移動の設定")
-        move_speed = st.slider("移動速度(秒)", 1.0, 20.0, 5.0, 0.5)
-        move_range = st.slider("移動範囲(px)", 0, 200, 30, 5)
+    # --- 移動アニメーションの生成ロジック ---
+    directions = [
+        (0, -1),  # ① 上
+        (1, -1),  # ② 右上
+        (1, 0),   # ③ 右
+        (1, 1),   # ④ 右下
+        (0, 1),   # ⑤ 下
+        (-1, 1),  # ⑥ 左下
+        (-1, 0),  # ⑦ 左
+        (-1, -1)  # ⑧ 左上
+    ]
 
-        st.divider()
-        st.header("移動規則性の設定")
+    if move_pattern == "ランダム":
+        random.seed(random_seed)
+        random.shuffle(directions)
+    
+    total_move_duration = one_move_duration * 8
+    
+    keyframes_css = "@keyframes floatKeyframes {"
+    step_percent = 100 / 8 
+    
+    for i, (dx, dy) in enumerate(directions):
+        start_p = i * step_percent
+        mid_p   = start_p + (step_percent / 2)
+        end_p   = (i + 1) * step_percent
+        
+        tx = dx * move_range
+        ty = dy * move_range
+        
+        if i == 0:
+            keyframes_css += f"0% {{ transform: translate(0px, 0px); }}"
+        keyframes_css += f"{mid_p:.2f}% {{ transform: translate({tx}px, {ty}px); }}"
+        keyframes_css += f"{end_p:.2f}% {{ transform: translate(0px, 0px); }}"
 
-    # --- キーボードデータ ---
+    keyframes_css += "}"
+
+
+    # --- キーボードデータ定義 ---
     rows = [
         # Row 1
         [
@@ -134,6 +176,10 @@ def main():
     ]
 
     rows_json = json.dumps(rows)
+    
+    # CSS変数の準備
+    anim_scale_play_state = "running" if scale_enabled else "paused"
+    anim_move_play_state = "running" if move_enabled else "paused"
 
     # --- HTML/CSS/JS テンプレート ---
     html_code = f"""
@@ -157,6 +203,7 @@ def main():
             user-select: none;
         }}
 
+        /* 1. 入力欄 */
         #screen {{
             width: 95%;
             height: 50px;
@@ -165,7 +212,7 @@ def main():
             font-size: 20px;
             border-radius: 8px;
             padding: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             border: 2px solid #555;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
             font-family: monospace;
@@ -175,71 +222,80 @@ def main():
             position: relative;
         }}
 
-        /* コントロールエリア */
+        /* 2. コントロールエリア（入力欄の下、キーボードの上） */
         .controls {{
             display: flex;
-            gap: 15px;
-            margin-top: 10px;
+            gap: 10px;
+            margin-bottom: 20px;
             z-index: 300;
             position: relative;
             align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 95%;
         }}
 
         button {{
-            padding: 10px 20px;
+            padding: 8px 16px;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 14px;
             font-family: 'Noto Sans JP', sans-serif;
             box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             transition: 0.2s;
         }}
         button:active {{ transform: translateY(2px); box-shadow: 0 2px 2px rgba(0,0,0,0.2); }}
 
-        #next-btn {{ background-color: #2196F3; color: white; }}
+        #next-btn {{ background-color: #2196F3; color: white; font-weight: bold; }}
         #next-btn:hover {{ background-color: #1e88e5; }}
 
         #download-btn {{ background-color: #4CAF50; color: white; }}
         #download-btn:hover {{ background-color: #45a049; }}
 
-        #reset-btn {{ background-color: #f44336; color: white; font-size: 12px; padding: 8px 12px; }}
+        #reset-btn {{ background-color: #f44336; color: white; }}
         #reset-btn:hover {{ background-color: #d32f2f; }}
 
-        #data-count {{ color: #555; font-size: 14px; font-weight: bold; }}
+        #data-count {{ 
+            color: #333; 
+            font-size: 14px; 
+            font-weight: bold; 
+            background: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }}
 
-        /* --- アニメーション --- */
+        /* --- アニメーション定義 --- */
         @keyframes breathe {{
             0% {{ transform: scaleX({scale_min}) scaleY({scale_min}); }}
             50% {{ transform: scaleX({scale_max}) scaleY({scale_max}); }}
             100% {{ transform: scaleX({scale_min}) scaleY({scale_min}); }}
         }}
 
-        @keyframes float {{
-            0% {{ transform: translate(0px, 0px); }}
-            20% {{ transform: translate({move_range}px, -{move_range/2}px); }}
-            40% {{ transform: translate(-{move_range/2}px, {move_range}px); }}
-            60% {{ transform: translate(-{move_range}px, -{move_range/2}px); }}
-            80% {{ transform: translate({move_range/2}px, {move_range/2}px); }}
-            100% {{ transform: translate(0px, 0px); }}
-        }}
+        {keyframes_css}
 
+        /* 3. キーボードエリア */
         .movement-wrapper {{
-            animation: float {move_speed}s infinite ease-in-out;
+            animation: floatKeyframes {total_move_duration}s infinite linear;
+            animation-play-state: {anim_move_play_state};
             width: 95%;
             display: flex;
             justify-content: center;
-            padding: {move_range}px; 
+            /* 移動範囲確保のためのパディング */
+            padding: {move_range + 10}px; 
+            box-sizing: border-box;
         }}
 
         .keyboard-wrapper {{
             animation: breathe {breath_speed}s infinite ease-in-out;
+            animation-play-state: {anim_scale_play_state};
             padding: 10px;
             background-color: #e8eaed;
             border-radius: 10px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             width: 100%;
-            height: 55vh;
+            height: 50vh; /* 少し高さを調整 */
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -291,7 +347,7 @@ def main():
 
         .arrow-stack {{
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100%; font-sizest.divider(): 10px; line-height: 10px;
+            height: 100%; font-size: 10px; line-height: 10px;
         }}
 
     </style>
@@ -299,15 +355,15 @@ def main():
     <body>
         <textarea id="screen" placeholder="ここに入力してください"></textarea>
         
-        <div class="movement-wrapper" id="move-wrap">
-            <div class="keyboard-wrapper" id="kb-wrap"></div>
+        <div class="controls">
+            <button id="next-btn" onclick="nextTrial()">送信 (Next Trial)</button>
+            <button id="download-btn" onclick="downloadCSV()">CSVをダウンロード</button>
+            <button id="reset-btn" onclick="resetData()">リセット</button>
+            <span id="data-count">Trial: 1 | Rec: 0</span>
         </div>
 
-        <div class="controls">
-            <button id="next-btn" onclick="nextTrial()">送信</button>
-            <button id="download-btn" onclick="downloadCSV()">CSVをダウンロード</button>
-            <span id="data-count">試行回数: 1</span>
-            <button id="reset-btn" onclick="resetData()">リセット</button>
+        <div class="movement-wrapper" id="move-wrap">
+            <div class="keyboard-wrapper" id="kb-wrap"></div>
         </div>
 
         <script>
@@ -348,6 +404,7 @@ def main():
                     keyDiv.onpointerdown = (e) => {{
                         e.preventDefault();
                         keyDiv.classList.add('active');
+                        keyDiv.setPointerCapture(e.pointerId);
 
                         const now = Date.now();
                         const rect = kbContainer.getBoundingClientRect();
@@ -359,7 +416,7 @@ def main():
                         let upDownTime = lastUpTime ? (now - lastUpTime) : '';
 
                         keyDiv._currentData = {{
-                            trial: currentTrial, // 試行回数を記録
+                            trial: currentTrial,
                             key: k.val || k.label || 'Unknown',
                             downTime: now,
                             downDown: downDownTime,
@@ -384,6 +441,7 @@ def main():
                     keyDiv.onpointerup = (e) => {{
                         e.preventDefault();
                         keyDiv.classList.remove('active');
+                        keyDiv.releasePointerCapture(e.pointerId);
                         
                         if (keyDiv._currentData) {{
                             const now = Date.now();
@@ -397,7 +455,6 @@ def main():
                             
                             recordedData.push(record);
                             
-                            // データを保存（永続化）
                             sessionStorage.setItem('kb_data', JSON.stringify(recordedData));
                             
                             lastUpTime = now;
@@ -406,12 +463,6 @@ def main():
                         }}
                     }};
                     
-                    keyDiv.onpointerleave = (e) => {{
-                        if (keyDiv.classList.contains('active')) {{
-                            keyDiv.dispatchEvent(new PointerEvent('pointerup'));
-                        }}
-                    }};
-
                     rowDiv.appendChild(keyDiv);
                 }});
 
@@ -420,20 +471,20 @@ def main():
 
             // --- ステータス表示更新 ---
             function updateStatus() {{
-                dataCountLabel.innerText = `Trial: ${{currentTrial}} | Records: ${{recordedData.length}}`;
+                dataCountLabel.innerText = `Trial: ${{currentTrial}} | Rec: ${{recordedData.length}}`;
             }}
 
             // --- 次の試行へ（送信） ---
             function nextTrial() {{
                 currentTrial++;
                 sessionStorage.setItem('kb_trial', currentTrial);
-                screen.value = ""; // 入力欄クリア
+                screen.value = "";
                 updateStatus();
             }}
 
             // --- データリセット ---
             function resetData() {{
-                if(confirm("蓄積された全てのデータを消去しますか？")) {{
+                if(confirm("データを全消去しますか？")) {{
                     recordedData = [];
                     currentTrial = 1;
                     sessionStorage.clear();
@@ -461,7 +512,7 @@ def main():
                 
                 recordedData.forEach(d => {{
                     const row = [
-                        d.trial, // 試行回数
+                        d.trial,
                         `"${{d.key}}"`,
                         d.downTime,
                         d.upTime,
@@ -483,7 +534,7 @@ def main():
                 
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = "keyboard_data_accumulated.csv";
+                a.download = "keyboard_data.csv";
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -494,7 +545,7 @@ def main():
     </html>
     """
     
-    components.html(html_code, height=750, scrolling=False)
+    components.html(html_code, height=800, scrolling=False)
 
 if __name__ == "__main__":
     main()
